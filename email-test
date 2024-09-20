@@ -1,0 +1,32 @@
+// this is a simple email test
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Create File') {
+            steps {
+                script {
+                    // Create the file and write content into it
+                    sh "echo 'Hello from Jenkins build number ${env.BUILD_NUMBER} date - \$(date)' > jenkins.txt"
+                }
+            }
+        }
+
+        stage('Send Email') {
+            steps {
+                // Use the Email Extension Plugin to send the email with attachment
+                emailext(
+                    subject: "Build ${env.BUILD_NUMBER}",
+                    body: "Please find the attached file created by Jenkins.",
+                    to: 'ziyadtarek180@gmail.com',
+                    from: 'ziyadtarek180@gmail.com',
+                    replyTo: 'ziyadtarek180@gmail.com',
+                    attachLog: true,
+                    attachmentsPattern: 'jenkins.txt'
+                )
+            }
+        }
+    }
+}
+
