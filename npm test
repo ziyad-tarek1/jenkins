@@ -1,0 +1,40 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'jdk17'
+    }
+    
+    environment {
+        GITHUB_CREDENTIALS = 'Git-cred' // Uncomment if you need Git credentials
+    }
+
+    stages {
+      /*  stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }*/
+
+        stage('Checkout') {
+            steps {
+                git branch: 'main', credentialsId: "${GITHUB_CREDENTIALS}", url: 'https://github.com/ziyad-tarek1/myreact-app.git'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                dir('react-app') { 
+                    sh "npm install"
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir('react-app') { 
+                    sh "npm run build"
+                }
+            }
+        }
+    }
+}
