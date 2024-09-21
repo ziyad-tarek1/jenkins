@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'jdk17'
+    }
+
+    environment {
+        GITHUB_CREDENTIALS = 'Git-cred' 
+    }
+
+    stages {
+        /*  stage('Clean Workspace') {
+                steps {
+                    cleanWs()
+                }
+            } */
+
+        stage('Checkout') {
+            steps {
+                git branch: 'main', credentialsId: "${GITHUB_CREDENTIALS}", url: 'https://github.com/ziyad-tarek1/myreact-app.git'
+            }
+        }
+
+        /*stage('Install Dependencies') {
+            steps {
+                dir('react-app') { 
+                    sh "npm install"
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir('react-app') { 
+                    sh "npm run build"
+                }
+            }
+        }*/
+
+        stage('Trivy Scan') {
+            steps {
+                script {
+                    def scanResultsFile = "trivy-scan-results.json"
+                    dir('react-app') {
+                        // Run Trivy as a container
+                        sh """
+                         docker run --rm \
+                            -v \$(pwd):/app \
+                            aquasec/trivy:latest fs \
+                            --severity HIGH,CRITICAL \
+                            --format json \
+                            --output /app/${scanResultsFile} \
+                            /app
+                        """
+                    }
+                    archiveArtifacts artifacts: "react-app/${scanResultsFile}", fingerprint: true
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            emailext(
+                subject: "${currentBuild.currentResult}: Job ${env.JOB_NAME} build ${env.BUILD_NUMBER}\nMore info at: ${env.BUILD_URL}",
+                body: "Please find the attached file created by Jenkins.",
+                to: 'ziyadtarek180@gmail.com',
+                from: 'ziyadtarek180@gmail.com',
+                replyTo: 'ziyadtarek180@gmail.com',
+                attachLog: true,
+                attachmentsPattern: "react-app/trivy-scan-results.json" // Attach the Trivy results
+            )
+        }
+    }
+}
