@@ -1,0 +1,128 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'jdk17'
+    }
+
+    environment {
+        GITHUB_CREDENTIALS = 'Git-cred' 
+        DOCKER_CREDENTIALS_ID = 'DockerHub-Cred'
+        DOCKERHUB_REPO = 'ziyadtarek99/myreact-app'
+    }
+
+    stages {
+        /*  stage('Clean Workspace') {
+                steps {
+                    cleanWs()
+                }
+            } */
+
+        stage('Checkout') {
+            steps {
+                git branch: 'main', credentialsId: "${GITHUB_CREDENTIALS}", url: 'https://github.com/ziyad-tarek1/myreact-app.git'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                dir('react-app') { 
+                    sh "npm install"
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir('react-app') { 
+                    sh "npm run build"
+                }
+            }
+        }
+
+        stage('Trivy Scan FS') {
+            steps {
+                script {
+                    def scanResultsFile = "trivy-scan-results.json"
+                    dir('react-app') {
+                        // Run Trivy as a container to scan the FS 
+                        sh """
+                         docker run --rm \
+                            -v \$(pwd):/app \
+                            aquasec/trivy:latest fs \
+                            --severity HIGH,CRITICAL \
+                            --format json \
+                            --output /app/${scanResultsFile} \
+                            /app
+                        """
+                    }
+                    archiveArtifacts artifacts: "react-app/${scanResultsFile}", fingerprint: true
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                dir('react-app') { // Change to the directory containing the Dockerfile
+                    script {
+                        // Calculate the new tag (increment by 1.0 for each build)
+                        def newTag = "${env.BUILD_NUMBER}.0"
+                        env.IMAGE_TAG = newTag
+                        
+                        // Build the Docker image with the new tag
+                        docker.build("${DOCKERHUB_REPO}:${newTag}")
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    // Push the Docker image to Docker Hub with the new tag
+                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS_ID) {
+                        docker.image("${DOCKERHUB_REPO}:${IMAGE_TAG}").push()
+                        
+                        // Tag the image as latest and push it
+                        docker.image("${DOCKERHUB_REPO}:${IMAGE_TAG}").push('latest')
+                    }
+                }
+            }
+        }
+
+        stage('Trivy Scan Image') {
+            steps {
+                script {
+                    def scanResultsImage = "trivy-scan-image-results.json"
+                    dir('react-app') {
+                        // Run Trivy as a container to scan the container image
+                        sh """
+                            docker run --rm \
+                                -v \$(pwd):/data \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --format json \
+                                --output /data/${scanResultsImage} \
+                                ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        """
+                    }
+                    archiveArtifacts artifacts: "react-app/${scanResultsImage}", fingerprint: true
+                }
+            }
+        }
+
+    }
+
+    post {
+        always {
+            emailext(
+                subject: "${currentBuild.currentResult}: Job ${env.JOB_NAME} build ${env.BUILD_NUMBER}\nMore info at: ${env.BUILD_URL}",
+                body: "Please find the attached file created by Jenkins.",
+                to: 'ziyadtarek180@gmail.com',
+                from: 'ziyadtarek180@gmail.com',
+                replyTo: 'ziyadtarek180@gmail.com',
+                attachLog: true,
+                attachmentsPattern: "react-app/trivy-scan-results.json, react-app/trivy-scan-image-results.json" // Attach the Trivy results
+            )
+        }
+    }
+}
